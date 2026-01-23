@@ -1,0 +1,9 @@
+## Interface: 11200
+## Title: ClickTeleport
+## Notes: Ctrl+Click on World Map to teleport (.go xy)
+## Author: Antigravity
+## Version: 1.0
+
+ClickTeleport.xml
+ClickTeleport_Data.lua
+ClickTeleport.lua
