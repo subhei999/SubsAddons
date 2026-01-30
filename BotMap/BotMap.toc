@@ -1,0 +1,10 @@
+## Interface: 11200
+## Title: BotMap
+## Notes: Show playerbot positions on the world map (GM only)
+## Author: cmangos
+## Version: 0.1
+
+BotMap.xml
+BotMap_Data.lua
+BotMap.lua
+
