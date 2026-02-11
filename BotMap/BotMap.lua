@@ -3,12 +3,16 @@
 
 BotMap_State = {
     enabled = true,
+    debug = false,
     refreshSeconds = 60,
     timeSince = 0,
     awaiting = false,
+    awaitingSince = 0,
+    awaitingTimeoutSeconds = 10,
     currentZoneText = nil,
     pins = {},
     visiblePins = 0,
+    chatFilterInstalled = false,
 }
 
 -- WoW 1.12 uses Lua 5.0: no string.match(). Use string.find() captures instead.
@@ -71,6 +75,63 @@ local function BotMap_Print(msg)
     end
 end
 
+local function BotMap_Debug(msg)
+    if (BotMap_State and BotMap_State.debug) then
+        BotMap_Print(msg)
+    end
+end
+
+local function BotMap_IsBotMapCommandMessage(msg)
+    if (not msg) then
+        return false
+    end
+    -- Message content for CHAT_MSG_* events is the raw text, not "You say:"
+    return (string.sub(msg, 1, 7) == ".botmap")
+end
+
+local function BotMap_IsBotMapSystemMessage(msg)
+    if (not msg) then
+        return false
+    end
+    return (string.sub(msg, 1, 7) == "BOTMAP:")
+end
+
+local function BotMap_InstallChatFilter()
+    if (BotMap_State.chatFilterInstalled) then
+        return
+    end
+
+    -- Vanilla doesn't have ChatFrame_AddMessageEventFilter; hook ChatFrame_OnEvent to suppress display spam.
+    local orig = ChatFrame_OnEvent
+    if (type(orig) ~= "function") then
+        return
+    end
+
+    ChatFrame_OnEvent = function(event)
+        -- If debug enabled, don't suppress anything.
+        if (BotMap_State and BotMap_State.debug) then
+            return orig(event)
+        end
+
+        local msg = arg1
+
+        -- Hide server dump lines in chat frames (we still parse them in BotMapFrame).
+        if (event == "CHAT_MSG_SYSTEM" and BotMap_IsBotMapSystemMessage(msg)) then
+            return
+        end
+
+        -- Hide our outgoing ".botmap ..." command echo in chat frames.
+        if ((event == "CHAT_MSG_SAY" or event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_OFFICER" or event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_CHANNEL")
+            and BotMap_IsBotMapCommandMessage(msg)) then
+            return
+        end
+
+        return orig(event)
+    end
+
+    BotMap_State.chatFilterInstalled = true
+end
+
 local function BotMap_GetViewedZoneText()
     local zoneIndex = GetCurrentMapZone()
     local continentIndex = GetCurrentMapContinent()
@@ -124,7 +185,8 @@ local function BotMap_GetOrCreatePin(i)
     pin.texture:SetTexture("Interface\\WorldMap\\WorldMapPartyIcon")
     pin.texture:SetVertexColor(1.0, 1.0, 1.0)
     pin:SetScript("OnEnter", function()
-        if (not GameTooltip) then
+        local tt = WorldMapTooltip or GameTooltip
+        if (not tt) then
             return
         end
         local line1, line2 = BotMap_FormatTooltip(pin)
@@ -133,17 +195,19 @@ local function BotMap_GetOrCreatePin(i)
             line1 = "BotMap"
             line2 = nil
         end
-        GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(line1, 1, 1, 1)
-        if (line2) then
-            GameTooltip:AddLine(line2, 0.7, 0.7, 0.7)
+        tt:SetOwner(pin, "ANCHOR_CURSOR")
+        if (tt.ClearLines) then
+            tt:ClearLines()
         end
-        GameTooltip:Show()
+        tt:AddLine(line1, 1, 1, 1)
+        if (line2) then
+            tt:AddLine(line2, 0.7, 0.7, 0.7)
+        end
+        tt:Show()
     end)
     pin:SetScript("OnLeave", function()
-        if (GameTooltip) then
-            GameTooltip:Hide()
-        end
+        local tt = WorldMapTooltip or GameTooltip
+        if (tt) then tt:Hide() end
     end)
     pin:Hide()
 
@@ -205,12 +269,14 @@ local function BotMap_RequestUpdate()
 
     -- GM command; server should respond with BOTMAP:* lines
     BotMap_State.awaiting = true
+    BotMap_State.awaitingSince = 0
     SendChatMessage(".botmap \"" .. zoneText .. "\"")
 end
 
 function BotMap_OnLoad()
     this:RegisterEvent("WORLD_MAP_UPDATE")
     this:RegisterEvent("CHAT_MSG_SYSTEM")
+    BotMap_InstallChatFilter()
     BotMap_Print("loaded (refresh " .. BotMap_State.refreshSeconds .. "s)")
 end
 
@@ -232,11 +298,13 @@ function BotMap_OnEvent(event, arg1)
         if (string.sub(arg1, 1, 12) == "BOTMAP:BEGIN") then
             BotMap_ClearPins()
             BotMap_State.awaiting = true
+            BotMap_State.awaitingSince = 0
             return
         end
 
         if (string.sub(arg1, 1, 10) == "BOTMAP:END") then
             BotMap_State.awaiting = false
+            BotMap_State.awaitingSince = 0
             return
         end
 
@@ -300,6 +368,15 @@ function BotMap_OnUpdate(elapsed)
 
     BotMap_State.timeSince = BotMap_State.timeSince + (elapsed or 0)
     if (BotMap_State.timeSince < BotMap_State.refreshSeconds) then
+        -- Even if we aren't refreshing yet, make sure "awaiting" can recover.
+        if (BotMap_State.awaiting) then
+            BotMap_State.awaitingSince = BotMap_State.awaitingSince + (elapsed or 0)
+            if (BotMap_State.awaitingSince >= BotMap_State.awaitingTimeoutSeconds) then
+                BotMap_Debug("server response timed out; resuming requests")
+                BotMap_State.awaiting = false
+                BotMap_State.awaitingSince = 0
+            end
+        end
         return
     end
 
@@ -307,9 +384,44 @@ function BotMap_OnUpdate(elapsed)
 
     -- avoid spamming requests if server hasn't answered
     if (BotMap_State.awaiting) then
+        BotMap_State.awaitingSince = BotMap_State.awaitingSince + (elapsed or 0)
+        if (BotMap_State.awaitingSince >= BotMap_State.awaitingTimeoutSeconds) then
+            BotMap_Debug("server response timed out; resuming requests")
+            BotMap_State.awaiting = false
+            BotMap_State.awaitingSince = 0
+        end
         return
     end
 
     BotMap_RequestUpdate()
+end
+
+-- Slash command:
+-- /botmap debug   (toggle)
+-- /botmap debug on|off
+SLASH_BOTMAP1 = "/botmap"
+SlashCmdList["BOTMAP"] = function(msg)
+    msg = msg or ""
+    -- trim
+    while (string.sub(msg, 1, 1) == " ") do msg = string.sub(msg, 2) end
+    while (string.sub(msg, -1) == " ") do msg = string.sub(msg, 1, -2) end
+
+    if (msg == "debug") then
+        BotMap_State.debug = not BotMap_State.debug
+        BotMap_Print("debug " .. (BotMap_State.debug and "ON" or "OFF"))
+        return
+    end
+    if (msg == "debug on") then
+        BotMap_State.debug = true
+        BotMap_Print("debug ON")
+        return
+    end
+    if (msg == "debug off") then
+        BotMap_State.debug = false
+        BotMap_Print("debug OFF")
+        return
+    end
+
+    BotMap_Print("commands: /botmap debug | /botmap debug on|off")
 end
 
