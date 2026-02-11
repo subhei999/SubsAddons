@@ -33,6 +33,26 @@ local BOTMAP_CLASS_NAMES = {
     [11] = "Druid",
 }
 
+local BOTMAP_CLASS_COLORS = {
+    [1] = "C79C6E", -- Warrior
+    [2] = "F58CBA", -- Paladin
+    [3] = "ABD473", -- Hunter
+    [4] = "FFF569", -- Rogue
+    [5] = "FFFFFF", -- Priest
+    [7] = "0070DE", -- Shaman
+    [8] = "69CCF0", -- Mage
+    [9] = "9482C9", -- Warlock
+    [11] = "FF7D0A", -- Druid
+}
+
+local function BotMap_ColorizeClassName(classId, className)
+    local hex = BOTMAP_CLASS_COLORS[classId]
+    if (not hex) then
+        return className
+    end
+    return "|cff" .. hex .. className .. "|r"
+end
+
 local function BotMap_TeamName(teamId)
     -- In vanilla client API, we just present a friendly label.
     -- We treat 0 as Alliance, 1 as Horde (common server convention).
@@ -64,9 +84,50 @@ local function BotMap_FormatTooltip(pin)
 
     local b = pin.bot
     local className = BOTMAP_CLASS_NAMES[b.classId] or ("Class " .. (b.classId or "?"))
+    local classText = BotMap_ColorizeClassName(b.classId, className)
     local teamName = BotMap_TeamName(b.teamId)
     local lvl = b.level or "?"
-    return b.name .. "  (Level " .. lvl .. " " .. className .. ")", teamName
+    return b.name, lvl .. " " .. classText .. " - " .. teamName
+end
+
+local function BotMap_ShowPinTooltip(pin)
+    local line1, line2 = BotMap_FormatTooltip(pin)
+    if (not line1) then
+        line1 = "BotMap"
+        line2 = nil
+    end
+
+    local tt = WorldMapTooltip or GameTooltip
+    if (not tt) then
+        return
+    end
+
+    if (tt.ClearLines) then
+        tt:ClearLines()
+    end
+    -- Questie-style: explicit world map tooltip with fixed anchor.
+    tt:SetOwner(pin, "ANCHOR_NONE")
+    tt:ClearAllPoints()
+    tt:SetPoint("BOTTOMLEFT", pin, "TOPRIGHT", 10, 6)
+    tt:AddLine(line1, 1, 1, 1)
+    if (line2) then
+        -- Tooltip header is naturally larger than body text in default UI.
+        tt:AddLine(line2, 0.85, 0.85, 0.85)
+    end
+    if (tt.SetFrameStrata) then
+        tt:SetFrameStrata("FULLSCREEN_DIALOG")
+    end
+    if (tt.SetFrameLevel and pin.GetFrameLevel) then
+        tt:SetFrameLevel(pin:GetFrameLevel() + 100)
+    end
+    tt:Show()
+end
+
+local function BotMap_HidePinTooltip()
+    local tt1 = WorldMapTooltip
+    if (tt1) then tt1:Hide() end
+    local tt2 = GameTooltip
+    if (tt2 and tt2 ~= tt1) then tt2:Hide() end
 end
 
 local function BotMap_Print(msg)
@@ -151,8 +212,9 @@ end
 
 local function BotMap_ClearPins()
     BotMap_State.visiblePins = 0
+    BotMap_HidePinTooltip()
 
-    for _, pin in BotMap_State.pins do
+    for _, pin in pairs(BotMap_State.pins) do
         pin.bot = nil
         pin:Hide()
         if (pin.texture) then
@@ -185,29 +247,10 @@ local function BotMap_GetOrCreatePin(i)
     pin.texture:SetTexture("Interface\\WorldMap\\WorldMapPartyIcon")
     pin.texture:SetVertexColor(1.0, 1.0, 1.0)
     pin:SetScript("OnEnter", function()
-        local tt = WorldMapTooltip or GameTooltip
-        if (not tt) then
-            return
-        end
-        local line1, line2 = BotMap_FormatTooltip(pin)
-        if (not line1) then
-            -- Fallback to something visible if metadata not attached yet
-            line1 = "BotMap"
-            line2 = nil
-        end
-        tt:SetOwner(pin, "ANCHOR_CURSOR")
-        if (tt.ClearLines) then
-            tt:ClearLines()
-        end
-        tt:AddLine(line1, 1, 1, 1)
-        if (line2) then
-            tt:AddLine(line2, 0.7, 0.7, 0.7)
-        end
-        tt:Show()
+        BotMap_ShowPinTooltip(pin)
     end)
     pin:SetScript("OnLeave", function()
-        local tt = WorldMapTooltip or GameTooltip
-        if (tt) then tt:Hide() end
+        BotMap_HidePinTooltip()
     end)
     pin:Hide()
 
