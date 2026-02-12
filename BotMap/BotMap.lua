@@ -210,6 +210,26 @@ local function BotMap_GetViewedZoneText()
     return zoneText
 end
 
+local function BotMap_WorldToMapXY(zoneText, worldX, worldY)
+    if (not BotMap_ZoneData or not zoneText) then
+        return nil, nil
+    end
+
+    local data = BotMap_ZoneData[zoneText]
+    if (not data) then
+        return nil, nil
+    end
+
+    local mapY = (data.maxX - worldX) / (data.maxX - data.minX)
+    local mapX = (data.maxY - worldY) / (data.maxY - data.minY)
+
+    if (mapX < 0 or mapX > 1 or mapY < 0 or mapY > 1) then
+        return nil, nil
+    end
+
+    return mapX, mapY
+end
+
 local function BotMap_ClearPins()
     BotMap_State.visiblePins = 0
     BotMap_HidePinTooltip()
@@ -256,29 +276,6 @@ local function BotMap_GetOrCreatePin(i)
 
     BotMap_State.pins[i] = pin
     return pin
-end
-
-local function BotMap_WorldToMapXY(zoneText, worldX, worldY)
-    if (not BotMap_ZoneData or not zoneText) then
-        return nil, nil
-    end
-
-    local data = BotMap_ZoneData[zoneText]
-    if (not data) then
-        return nil, nil
-    end
-
-    -- Invert ClickTeleport's conversion:
-    -- mapY = (maxX - worldX) / (maxX - minX)
-    -- mapX = (maxY - worldY) / (maxY - minY)
-    local mapY = (data.maxX - worldX) / (data.maxX - data.minX)
-    local mapX = (data.maxY - worldY) / (data.maxY - data.minY)
-
-    if (mapX < 0 or mapX > 1 or mapY < 0 or mapY > 1) then
-        return nil, nil
-    end
-
-    return mapX, mapY
 end
 
 local function BotMap_PlacePin(i, mapX, mapY)
@@ -467,4 +464,3 @@ SlashCmdList["BOTMAP"] = function(msg)
 
     BotMap_Print("commands: /botmap debug | /botmap debug on|off")
 end
-
