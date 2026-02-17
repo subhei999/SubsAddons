@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../../mangos"
+		},
+		{
+			"path": "../../classic-db"
+		},
+		{
+			"path": "../../playerbots"
+		},
+		{
+			"path": "../../run"
+		},
+		{
+			"path": ".."
+		}
+	],
+	"settings": {}
+}

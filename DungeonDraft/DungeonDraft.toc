@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: DungeonDraft
+## Notes: Hearthstone-style dungeon draft UI for CMaNGOS prototype
+## Author: CMaNGOS
+## Version: 0.1
+
+DungeonDraft.lua
